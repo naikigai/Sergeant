@@ -10,7 +10,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
     // MARK: Check-in prompt
 
-    func showPrompt() {
+    /// `announcement` is spoken aloud after the chime (e.g. "1 hour is up") and shown in the window.
+    func showPrompt(announcement: String? = nil) {
         if let w = promptWindow { // previous check-in still open
             NSApp.activate(ignoringOtherApps: true)
             w.makeKeyAndOrderFront(nil)
@@ -37,6 +38,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
         let view = PromptView(
             recorder: rec,
             minutes: AppState.shared.intervalMinutes,
+            recent: LogStore.shared.recentEntries(5),
+            announcement: announcement,
             onSave: save,
             onSkip: { [weak self] in self?.closePrompt() }
         )
@@ -59,8 +62,11 @@ final class WindowManager: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
 
-        // Start listening after the chime so it isn't picked up.
-        DispatchQueue.main.asyncAfter(deadline: .now() + chimeLength + 0.3) { [weak rec] in rec?.start() }
+        // Start listening after the chime (and announcement) so they aren't picked up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + chimeLength + 0.3) { [weak rec] in
+            guard let announcement else { rec?.start(); return }
+            Announcer.shared.say(announcement) { [weak rec] in rec?.start() }
+        }
     }
 
     private func closePrompt() {
@@ -105,6 +111,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
 struct PromptView: View {
     @ObservedObject var recorder: SpeechRecorder
     let minutes: Int
+    let recent: [LogEntry]
+    let announcement: String?
     let onSave: (String) -> Void
     let onSkip: () -> Void
 
@@ -114,6 +122,37 @@ struct PromptView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if let announcement {
+                Label(announcement, systemImage: "clock.badge.checkmark.fill")
+                    .font(.headline)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor))
+            }
+
+            if !recent.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Earlier").font(.caption.bold()).foregroundColor(.secondary)
+                    ForEach(recent) { entry in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text(entry.time)
+                                .monospacedDigit()
+                                .foregroundColor(.secondary)
+                                .frame(width: 40, alignment: .leading)
+                            Text(entry.text)
+                                .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.callout)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.1)))
+            }
+
             Text("What did you do in the last \(minutes) min?")
                 .font(.title2.bold())
 

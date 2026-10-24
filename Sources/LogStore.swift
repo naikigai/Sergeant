@@ -64,8 +64,17 @@ final class LogStore: ObservableObject {
     }
 
     func reload() {
-        let text = (try? String(contentsOf: fileURL(for: day), encoding: .utf8)) ?? ""
-        entries = text.split(separator: "\n").map { line in
+        entries = entries(for: day)
+    }
+
+    /// The last `count` entries logged today, oldest first.
+    func recentEntries(_ count: Int) -> [LogEntry] {
+        Array(entries(for: Date()).suffix(count))
+    }
+
+    private func entries(for date: Date) -> [LogEntry] {
+        let text = (try? String(contentsOf: fileURL(for: date), encoding: .utf8)) ?? ""
+        return text.split(separator: "\n").map { line in
             let parts = line.split(separator: "\t", maxSplits: 1)
             return parts.count == 2
                 ? LogEntry(time: String(parts[0]), text: String(parts[1]))

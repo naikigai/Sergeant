@@ -58,7 +58,7 @@ struct MenuView: View {
             }
             Button("Check in now") {
                 WindowManager.shared.showPrompt()
-                if state.isRunning { state.start() } // restart countdown from now
+                state.restartCountdown()
             }
             Button("Show log") { WindowManager.shared.showLog() }
 

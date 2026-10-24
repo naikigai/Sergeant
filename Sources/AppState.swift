@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import ServiceManagement
 
 final class AppState: ObservableObject {
@@ -43,6 +44,10 @@ final class AppState: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var nextFire: Date?
 
+    /// Every this many timer check-ins, the app announces that an hour is up.
+    static let triggersPerHour = 6
+    private var triggerCount = 0
+
     private init() {
         let saved = defaults.integer(forKey: "intervalMinutes")
         intervalMinutes = saved > 0 ? saved : 10
@@ -57,11 +62,17 @@ final class AppState: ObservableObject {
         if defaults.object(forKey: "running") as? Bool ?? true { start() }
     }
 
-    /// Starts (or restarts) the countdown from now.
+    /// Starts the timer and the hour count from now.
     func start() {
         isRunning = true
         defaults.set(true, forKey: "running")
+        triggerCount = 0
         schedule()
+    }
+
+    /// Restarts the countdown to the next check-in without resetting the hour count.
+    func restartCountdown() {
+        if isRunning { schedule() }
     }
 
     func pause() {
@@ -77,12 +88,42 @@ final class AppState: ObservableObject {
         let interval = TimeInterval(intervalMinutes * 60)
         nextFire = Date().addingTimeInterval(interval)
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            self?.nextFire = Date().addingTimeInterval(interval)
-            WindowManager.shared.showPrompt()
+            guard let self else { return }
+            self.nextFire = Date().addingTimeInterval(interval)
+            self.triggerCount += 1
+            let hours = self.triggerCount / Self.triggersPerHour
+            let isHourMark = self.triggerCount % Self.triggersPerHour == 0
+            WindowManager.shared.showPrompt(
+                announcement: isHourMark ? (hours == 1 ? "1 hour is up" : "\(hours) hours are up") : nil)
         }
         t.tolerance = 5 // lets macOS coalesce wakeups to save energy
         RunLoop.main.add(t, forMode: .common)
         timer = t
+    }
+}
+
+/// Speaks a short phrase aloud and reports when it's done, so the mic can start afterwards.
+final class Announcer: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable { // only used on the main thread
+    static let shared = Announcer()
+    private let synth = AVSpeechSynthesizer()
+    private var completion: (() -> Void)?
+
+    private override init() {
+        super.init()
+        synth.delegate = self
+    }
+
+    func say(_ text: String, then completion: @escaping () -> Void) {
+        self.completion = completion
+        synth.speak(AVSpeechUtterance(string: text))
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async {
+            let done = self.completion
+            self.completion = nil
+            done?()
+        }
     }
 }
 
