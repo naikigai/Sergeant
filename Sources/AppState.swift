@@ -44,9 +44,10 @@ final class AppState: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var nextFire: Date?
 
-    /// Every this many timer check-ins, the app announces that an hour is up.
-    static let triggersPerHour = 6
-    private var triggerCount = 0
+    /// When the timer was started; hours are counted from here.
+    private var startedAt = Date()
+    /// Whole hours already announced since `startedAt`.
+    private var announcedHours = 0
 
     private init() {
         let saved = defaults.integer(forKey: "intervalMinutes")
@@ -66,7 +67,8 @@ final class AppState: ObservableObject {
     func start() {
         isRunning = true
         defaults.set(true, forKey: "running")
-        triggerCount = 0
+        startedAt = Date()
+        announcedHours = 0
         schedule()
     }
 
@@ -90,15 +92,20 @@ final class AppState: ObservableObject {
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.nextFire = Date().addingTimeInterval(interval)
-            self.triggerCount += 1
-            let hours = self.triggerCount / Self.triggersPerHour
-            let isHourMark = self.triggerCount % Self.triggersPerHour == 0
-            WindowManager.shared.showPrompt(
-                announcement: isHourMark ? (hours == 1 ? "1 hour is up" : "\(hours) hours are up") : nil)
+            WindowManager.shared.showPrompt(announcement: self.hourAnnouncement())
         }
         t.tolerance = 5 // lets macOS coalesce wakeups to save energy
         RunLoop.main.add(t, forMode: .common)
         timer = t
+    }
+
+    /// Based on real elapsed time, so it works for any interval: returns "N hours are up"
+    /// at the first check-in after a new whole hour has passed since the timer started.
+    private func hourAnnouncement() -> String? {
+        let hours = Int((Date().timeIntervalSince(startedAt) + 1) / 3600) // +1 s for timer jitter
+        guard hours > announcedHours else { return nil }
+        announcedHours = hours
+        return hours == 1 ? "1 hour is up" : "\(hours) hours are up"
     }
 }
 

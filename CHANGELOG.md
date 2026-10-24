@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- The hourly announcement now uses real elapsed time, so it works at any interval.
+  Before, it fired every 6th check-in, which was only right at the default 10 minutes
+  (at 30 minutes it said "1 hour is up" after 3 hours).
+
 ## [1.0.0] - 2026-10-24
 
 First public release.
@@ -36,4 +44,5 @@ First public release.
 
 - The Skip button on the check-in window. Close the window to dismiss a check-in.
 
+[Unreleased]: https://github.com/naikigai/ActivityLogger/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/naikigai/ActivityLogger/releases/tag/v1.0.0
