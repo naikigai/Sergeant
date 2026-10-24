@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MenuView: View {
     @ObservedObject private var state = AppState.shared
+    @ObservedObject private var commander = Commander.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -48,6 +49,25 @@ struct MenuView: View {
                 .help("Test the chime")
             }
             Stepper("Play sound \(state.soundRepeats)×", value: $state.soundRepeats, in: 1...10)
+            HStack {
+                Toggle("Commander voice", isOn: $state.commanderVoice)
+                Spacer()
+                Button {
+                    Commander.shared.shout {}
+                } label: { Image(systemName: "speaker.wave.2.fill") }
+                .help("Test the commander voice")
+            }
+            HStack {
+                Button(commander.clipURL == nil ? "Use my own clip…" : "Change clip…") {
+                    commander.chooseClip()
+                }
+                if commander.clipURL != nil {
+                    Button("Use built-in voice") { commander.removeClip() }
+                }
+            }
+            .controlSize(.small)
+            .disabled(!state.commanderVoice)
+            Toggle("Pause videos & music during check-ins", isOn: $state.pauseMedia)
             Toggle("Auto-save when I stop talking", isOn: $state.autoSave)
             Toggle("Launch at login", isOn: $state.launchAtLogin)
 

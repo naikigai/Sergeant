@@ -11,9 +11,13 @@ final class SpeechRecorder: ObservableObject {
 
     /// Called when the user has spoken and then gone quiet.
     var onFinishedSpeaking: (() -> Void)?
+    /// Called (after the mic stops) when nothing was said within `noSpeechTimeout`.
+    /// Return true if handled, otherwise the default "Stopped listening" message is shown.
+    var onNoSpeech: (() -> Bool)?
 
+    /// How long to wait for the user to start talking.
+    var noSpeechTimeout: TimeInterval = 30
     private let silenceTimeout: TimeInterval = 3
-    private let noSpeechTimeout: TimeInterval = 30
     private let maxDuration: TimeInterval = 120
 
     private var engine: AVAudioEngine?
@@ -166,7 +170,9 @@ final class SpeechRecorder: ObservableObject {
             finish()
         } else if !heardSpeech && now.timeIntervalSince(startedAt) > noSpeechTimeout {
             stop()
-            message = "Stopped listening. Tap Record to try again, or type."
+            if onNoSpeech?() != true {
+                message = "Stopped listening. Tap Record to try again, or type."
+            }
         } else if now.timeIntervalSince(startedAt) > maxDuration {
             finish()
         }

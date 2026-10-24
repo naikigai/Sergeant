@@ -10,8 +10,14 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
     // MARK: Check-in prompt
 
-    /// `announcement` is spoken aloud after the chime (e.g. "1 hour is up") and shown in the window.
-    func showPrompt(announcement: String? = nil) {
+    /// Shouts this many times in total before it stops nagging and just listens.
+    private static let maxShouts = 5
+
+    /// Opens a check-in. With `commander` on, the app shouts "Soldier! Update!" instead of
+    /// the chime and repeats it if you don't start talking within 2 s; after you save it
+    /// says "Focus, soldier!". `announcement` (e.g. "1 hour is up") is spoken once and
+    /// shown in the window. The app and the mic take turns, so the mic never hears the app.
+    func showPrompt(announcement: String? = nil, commander: Bool = false) {
         if let w = promptWindow { // previous check-in still open
             NSApp.activate(ignoringOtherApps: true)
             w.makeKeyAndOrderFront(nil)
@@ -26,6 +32,12 @@ final class WindowManager: NSObject, NSWindowDelegate {
             rec.stop()
             LogStore.shared.add(text, at: promptTime)
             rec.saved = true
+            if commander {
+                Announcer.shared.stop() // cut off a shout still in progress
+                Commander.shared.speak(Commander.focusLine) { MediaPauser.shared.resumeIfPaused() }
+            } else {
+                MediaPauser.shared.resumeIfPaused()
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { self?.closePrompt() }
         }
 
@@ -57,20 +69,63 @@ final class WindowManager: NSObject, NSWindowDelegate {
         promptWindow = w
         recorder = rec
 
-        let chimeLength = Chime.play(AppState.shared.soundName, repeats: AppState.shared.soundRepeats)
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
 
-        // Start listening after the chime (and announcement) so they aren't picked up.
-        DispatchQueue.main.asyncAfter(deadline: .now() + chimeLength + 0.3) { [weak rec] in
-            guard let announcement else { rec?.start(); return }
-            Announcer.shared.say(announcement) { [weak rec] in rec?.start() }
+        // Each step first checks that this check-in is still open and unsaved,
+        // so nothing is spoken or recorded after you save or close the window.
+        weak var weakRec = rec
+        let isActive = { [weak self] in
+            weakRec != nil && self?.recorder === weakRec && weakRec?.saved == false
+        }
+        let startListening = { if isActive() { weakRec?.start() } }
+        let announce = {
+            guard let announcement, isActive() else { return startListening() }
+            Announcer.shared.say(announcement, then: startListening)
+        }
+
+        let begin: () -> Void
+        if commander {
+            var shouts = 0
+            func shout() {
+                guard isActive() else { return }
+                shouts += 1
+                Commander.shared.shout(then: shouts == 1 ? announce : startListening)
+            }
+            rec.noSpeechTimeout = 2
+            rec.onNoSpeech = {
+                guard isActive(), let rec = weakRec else { return true }
+                if !rec.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return true // you typed an answer instead
+                }
+                if shouts < Self.maxShouts {
+                    shout()
+                } else { // stop nagging and wait the usual 30 s
+                    rec.noSpeechTimeout = 30
+                    rec.onNoSpeech = nil
+                    rec.start()
+                }
+                return true
+            }
+            begin = shout
+        } else {
+            begin = {
+                guard isActive() else { return }
+                let chimeLength = Chime.play(AppState.shared.soundName, repeats: AppState.shared.soundRepeats)
+                DispatchQueue.main.asyncAfter(deadline: .now() + chimeLength + 0.3, execute: announce)
+            }
+        }
+
+        // Pause any video or music first, so neither you nor the mic has to compete with it.
+        if AppState.shared.pauseMedia {
+            MediaPauser.shared.pauseIfPlaying(then: begin)
+        } else {
+            begin()
         }
     }
 
     private func closePrompt() {
-        recorder?.stop()
-        recorder = nil
+        endPrompt()
         let w = promptWindow
         promptWindow = nil
         w?.close()
@@ -78,10 +133,20 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         if (notification.object as? NSWindow) === promptWindow {
-            recorder?.stop()
-            recorder = nil
+            endPrompt()
             promptWindow = nil
         }
+    }
+
+    /// Stops the mic. If the check-in wasn't saved, also stops any pending shout and resumes
+    /// paused media; after a save, `save` does that once "Focus, soldier!" has finished.
+    private func endPrompt() {
+        if recorder?.saved == false {
+            Announcer.shared.stop()
+            MediaPauser.shared.resumeIfPaused()
+        }
+        recorder?.stop()
+        recorder = nil
     }
 
     // MARK: Log window

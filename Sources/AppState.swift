@@ -30,6 +30,16 @@ final class AppState: ObservableObject {
         didSet { defaults.set(autoSave, forKey: "autoSave") }
     }
 
+    /// Pause whatever is playing (videos, music) during a check-in and resume it afterwards.
+    @Published var pauseMedia: Bool {
+        didSet { defaults.set(pauseMedia, forKey: "pauseMedia") }
+    }
+
+    /// Shout "Soldier! Update!" at each timer check-in.
+    @Published var commanderVoice: Bool {
+        didSet { defaults.set(commanderVoice, forKey: "commanderVoice") }
+    }
+
     @Published var launchAtLogin: Bool {
         didSet {
             do {
@@ -53,6 +63,8 @@ final class AppState: ObservableObject {
         let saved = defaults.integer(forKey: "intervalMinutes")
         intervalMinutes = saved > 0 ? saved : 10
         autoSave = defaults.object(forKey: "autoSave") as? Bool ?? true
+        commanderVoice = defaults.object(forKey: "commanderVoice") as? Bool ?? true
+        pauseMedia = defaults.object(forKey: "pauseMedia") as? Bool ?? true
         soundName = defaults.string(forKey: "soundName") ?? "Submarine"
         let repeats = defaults.integer(forKey: "soundRepeats")
         soundRepeats = repeats > 0 ? repeats : 3
@@ -92,7 +104,8 @@ final class AppState: ObservableObject {
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.nextFire = Date().addingTimeInterval(interval)
-            WindowManager.shared.showPrompt(announcement: self.hourAnnouncement())
+            WindowManager.shared.showPrompt(announcement: self.hourAnnouncement(),
+                                            commander: self.commanderVoice)
         }
         t.tolerance = 5 // lets macOS coalesce wakeups to save energy
         RunLoop.main.add(t, forMode: .common)
@@ -109,10 +122,13 @@ final class AppState: ObservableObject {
     }
 }
 
-/// Speaks a short phrase aloud and reports when it's done, so the mic can start afterwards.
-final class Announcer: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendable { // only used on the main thread
+/// Speaks a short phrase or plays an audio clip and reports when it's done,
+/// so the mic can start afterwards.
+final class Announcer: NSObject, AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate,
+                       @unchecked Sendable { // only used on the main thread
     static let shared = Announcer()
     private let synth = AVSpeechSynthesizer()
+    private var player: AVAudioPlayer?
     private var completion: (() -> Void)?
 
     private override init() {
@@ -120,13 +136,45 @@ final class Announcer: NSObject, AVSpeechSynthesizerDelegate, @unchecked Sendabl
         synth.delegate = self
     }
 
-    func say(_ text: String, then completion: @escaping () -> Void) {
+    func say(_ text: String, voice: AVSpeechSynthesisVoice? = nil, pitch: Float = 1,
+             rate: Float = AVSpeechUtteranceDefaultSpeechRate, then completion: @escaping () -> Void) {
         self.completion = completion
-        synth.speak(AVSpeechUtterance(string: text))
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = voice
+        utterance.pitchMultiplier = pitch
+        utterance.rate = rate
+        synth.speak(utterance)
+    }
+
+    /// Returns false (without calling `completion`) if the file can't be played.
+    func play(_ url: URL, then completion: @escaping () -> Void) -> Bool {
+        guard let p = try? AVAudioPlayer(contentsOf: url) else { return false }
+        p.delegate = self
+        guard p.play() else { return false }
+        player = p
+        self.completion = completion
+        return true
+    }
+
+    /// Stops speaking or playing right away without calling the pending completion.
+    func stop() {
+        completion = nil
+        synth.stopSpeaking(at: .immediate)
+        player?.stop()
+        player = nil
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        finish()
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        finish()
+    }
+
+    private func finish() {
         DispatchQueue.main.async {
+            self.player = nil
             let done = self.completion
             self.completion = nil
             done?()

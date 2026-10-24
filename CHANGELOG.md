@@ -6,6 +6,23 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-24
+
+### Added
+
+- **Commander voice**: at each timer check-in the app shouts "Soldier! Update!" instead
+  of the chime, then listens. If you don't start talking within 2 seconds it shouts again
+  (up to 5 times, then it waits quietly for 30 seconds). After you save it says
+  "Focus, soldier!". Turn it on or off and test it from the menu; with it off, the chime
+  plays as before.
+- **Pause media during check-ins**: whatever is playing (YouTube in any browser, Music,
+  Spotify, VLC, and anything else in macOS's Now Playing) is paused before the check-in
+  starts, so the mic doesn't transcribe it, and resumed after you save or close the
+  window. Only media the app paused is resumed. Toggle it in the menu.
+- **Your own clip**: choose any audio file (for example a recording of a real drill
+  sergeant) to play instead of the built-in voice. It is copied to
+  `~/Library/Application Support/ActivityLogger/`.
+
 ### Fixed
 
 - The hourly announcement now uses real elapsed time, so it works at any interval.
@@ -44,5 +61,6 @@ First public release.
 
 - The Skip button on the check-in window. Close the window to dismiss a check-in.
 
-[Unreleased]: https://github.com/naikigai/ActivityLogger/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/naikigai/ActivityLogger/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/naikigai/ActivityLogger/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/naikigai/ActivityLogger/releases/tag/v1.0.0
