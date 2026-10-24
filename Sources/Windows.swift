@@ -40,8 +40,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
             minutes: AppState.shared.intervalMinutes,
             recent: LogStore.shared.recentEntries(5),
             announcement: announcement,
-            onSave: save,
-            onSkip: { [weak self] in self?.closePrompt() }
+            onSave: save
         )
 
         let hosting = NSHostingView(rootView: view)
@@ -114,7 +113,6 @@ struct PromptView: View {
     let recent: [LogEntry]
     let announcement: String?
     let onSave: (String) -> Void
-    let onSkip: () -> Void
 
     private var isEmpty: Bool {
         recorder.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -189,8 +187,6 @@ struct PromptView: View {
                           systemImage: recorder.isListening ? "stop.fill" : "mic.fill")
                 }
                 Spacer()
-                Button("Skip", action: onSkip)
-                    .keyboardShortcut(.cancelAction)
                 Button("Save") { onSave(recorder.transcript) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(isEmpty)
