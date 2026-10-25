@@ -6,6 +6,35 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Catch-up updates**: if you miss check-ins (away from the Mac), the next one says how
+  long it's been, e.g. "2 hours since your last update.", asks "What did you do since
+  7:00 AM?", and logs your answer for the whole span (`07:00–09:00`). An unanswered
+  check-in window is replaced by the next one instead of piling up.
+- **Workday**: set when your day starts and ends in the menu (default 9 AM–9 PM).
+  Check-ins only happen inside it; the menu shows the next one, "tomorrow" if needed.
+
+### Changed
+
+- **Editing turns off auto-save**: as soon as you click or type in the text box, the mic
+  stops (so it can't overwrite your edits), the shouting stops, and the check-in no longer
+  saves by itself when you go quiet. Save with ⏎ or the Save button; Record adds more speech.
+- **Check-ins on the clock**: they now land on fixed slots counted from midnight
+  (10:00, 10:10, 10:20 … at 10 min), instead of counting from when the app started.
+  "Check in now" no longer moves the schedule. A check-in that came due while the Mac
+  slept is skipped instead of popping up on wake, and the first check-in after waking
+  doesn't say "1 hour is up".
+- **Hourly message**: at the first check-in of each new clock hour the app says
+  "1 hour is up. It's 3 PM. 6 hours left in the day." (or "That's the end of the day."),
+  instead of counting hours since the app started.
+
+- **⏎ to record, ⏎ to save**: in the check-in window, the first ⏎ starts recording (and
+  cuts off the shout and its repeats); the next ⏎ saves. Works even while typing in the
+  text box. Shift-⏎ still inserts a line break.
+- The hour announcement now comes first: "1 hour is up", then "Soldier! Update!", then
+  the mic. Repeated shouts don't repeat the announcement.
+
 ## [1.1.0] - 2026-10-24
 
 ### Added

@@ -40,6 +40,21 @@ final class AppState: ObservableObject {
         didSet { defaults.set(commanderVoice, forKey: "commanderVoice") }
     }
 
+    /// The workday: check-ins happen only between these clock hours (end may be 24 = midnight).
+    @Published var dayStartHour: Int {
+        didSet {
+            defaults.set(dayStartHour, forKey: "dayStartHour")
+            if isRunning { schedule() }
+        }
+    }
+
+    @Published var dayEndHour: Int {
+        didSet {
+            defaults.set(dayEndHour, forKey: "dayEndHour")
+            if isRunning { schedule() }
+        }
+    }
+
     @Published var launchAtLogin: Bool {
         didSet {
             do {
@@ -54,10 +69,16 @@ final class AppState: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var nextFire: Date?
 
-    /// When the timer was started; hours are counted from here.
-    private var startedAt = Date()
-    /// Whole hours already announced since `startedAt`.
-    private var announcedHours = 0
+    /// When the last saved update's check-in started; a later check-in that finds
+    /// missed slots since then covers the whole gap.
+    var lastUpdateAt: Date? {
+        get { defaults.object(forKey: "lastUpdateAt") as? Date }
+        set { defaults.set(newValue, forKey: "lastUpdateAt") }
+    }
+
+    /// When the previous check-in was due (or when the timer started); used to tell
+    /// when a new clock hour has begun.
+    private var lastCheckIn = Date()
 
     private init() {
         let saved = defaults.integer(forKey: "intervalMinutes")
@@ -68,25 +89,30 @@ final class AppState: ObservableObject {
         soundName = defaults.string(forKey: "soundName") ?? "Submarine"
         let repeats = defaults.integer(forKey: "soundRepeats")
         soundRepeats = repeats > 0 ? repeats : 3
+        dayStartHour = defaults.object(forKey: "dayStartHour") as? Int ?? 9
+        dayEndHour = defaults.object(forKey: "dayEndHour") as? Int ?? 21
         launchAtLogin = SMAppService.mainApp.status == .enabled
+
+        // After sleep, pick the next upcoming slot, and count the hour from the wake
+        // so the first check-in after waking doesn't say "1 hour is up".
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isRunning else { return }
+            self.lastCheckIn = Date()
+            self.schedule()
+        }
     }
 
     func startIfNeeded() {
         if defaults.object(forKey: "running") as? Bool ?? true { start() }
     }
 
-    /// Starts the timer and the hour count from now.
     func start() {
         isRunning = true
         defaults.set(true, forKey: "running")
-        startedAt = Date()
-        announcedHours = 0
+        lastCheckIn = Date()
         schedule()
-    }
-
-    /// Restarts the countdown to the next check-in without resetting the hour count.
-    func restartCountdown() {
-        if isRunning { schedule() }
     }
 
     func pause() {
@@ -97,29 +123,111 @@ final class AppState: ObservableObject {
         nextFire = nil
     }
 
+    /// Sets a one-shot timer for the next clock slot; each check-in schedules the one after.
     private func schedule() {
         timer?.invalidate()
-        let interval = TimeInterval(intervalMinutes * 60)
-        nextFire = Date().addingTimeInterval(interval)
-        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+        let due = nextCheckIn(after: Date().addingTimeInterval(1)) // +1 s so a slot never repeats
+        nextFire = due
+        let t = Timer(fire: due, interval: 0, repeats: false) { [weak self] _ in
             guard let self else { return }
-            self.nextFire = Date().addingTimeInterval(interval)
-            WindowManager.shared.showPrompt(announcement: self.hourAnnouncement(),
-                                            commander: self.commanderVoice)
+            // A slot that came due while the Mac slept fires on wake, sometimes before the
+            // wake notification arrives; skip it rather than asking at an odd time.
+            guard Date().timeIntervalSince(due) < 60 else {
+                self.lastCheckIn = Date()
+                return self.schedule()
+            }
+            let announcement = self.announcement(at: due)
+            self.lastCheckIn = due
+            self.schedule()
+            WindowManager.shared.showPrompt(announcement: announcement, commander: self.commanderVoice,
+                                            replacingIdle: true)
         }
-        t.tolerance = 5 // lets macOS coalesce wakeups to save energy
+        t.tolerance = 1
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }
 
-    /// Based on real elapsed time, so it works for any interval: returns "N hours are up"
-    /// at the first check-in after a new whole hour has passed since the timer started.
-    private func hourAnnouncement() -> String? {
-        let hours = Int((Date().timeIntervalSince(startedAt) + 1) / 3600) // +1 s for timer jitter
-        guard hours > announcedHours else { return nil }
-        announcedHours = hours
-        return hours == 1 ? "1 hour is up" : "\(hours) hours are up"
+    /// The first clock slot after `date` inside the workday. Slots are multiples of the
+    /// interval counted from midnight (10 min: :00, :10, :20 …), whenever the app started.
+    /// The window is (start, end]: with 9–21 the first check-in is 9:10 and the last 21:00.
+    func nextCheckIn(after date: Date) -> Date {
+        let cal = Calendar.current
+        let step = max(intervalMinutes, 1)
+        var day = cal.startOfDay(for: date)
+        for _ in 0..<3 {
+            let start = cal.date(byAdding: .hour, value: dayStartHour, to: day)!
+            let end = cal.date(byAdding: .hour, value: dayEndHour, to: day)!
+            let from = max(date, start)
+            if cal.isDate(from, inSameDayAs: day) {
+                let t = cal.dateComponents([.hour, .minute], from: from)
+                let slot = (t.hour! * 60 + t.minute!) / step * step + step
+                let due = slot < 24 * 60
+                       ? cal.date(bySettingHour: slot / 60, minute: slot % 60, second: 0, of: day)
+                       : cal.date(byAdding: .day, value: 1, to: day) // midnight
+                if let due, due <= end {
+                    return due
+                }
+            }
+            day = cal.date(byAdding: .day, value: 1, to: day)!
+        }
+        return date.addingTimeInterval(TimeInterval(step * 60)) // unreachable with a valid window
     }
+
+    /// The start of the time an update made at `date` covers, when at least one check-in
+    /// was missed since the last saved update (same day only); nil for a normal check-in.
+    func missedSince(_ date: Date) -> Date? {
+        guard let last = lastUpdateAt, Calendar.current.isDate(last, inSameDayAs: date),
+              date.timeIntervalSince(last) > TimeInterval(intervalMinutes * 60 + 60) else { return nil }
+        return last
+    }
+
+    /// What's said at a timer check-in, e.g. "2 hours since your last update.
+    /// It's 9 AM. 15 hours left in the day." or just the hourly part, or nil.
+    private func announcement(at due: Date) -> String? {
+        let hourly = hourAnnouncement(at: due)
+        guard let since = missedSince(due) else { return hourly }
+        let gap = "\(Self.duration(due.timeIntervalSince(since))) since your last update."
+        guard let hourly else { return gap }
+        return gap + " " + hourly.replacingOccurrences(of: "1 hour is up. ", with: "")
+    }
+
+    /// "40 minutes", "1 hour", "2 hours and 10 minutes"
+    static func duration(_ seconds: TimeInterval) -> String {
+        let total = Int((seconds / 60).rounded())
+        let h = total / 60, m = total % 60
+        let hours = h == 1 ? "1 hour" : "\(h) hours"
+        let minutes = m == 1 ? "1 minute" : "\(m) minutes"
+        return h == 0 ? minutes : m == 0 ? hours : "\(hours) and \(minutes)"
+    }
+
+    /// At the first check-in of each new clock hour (except the first of the day):
+    /// "1 hour is up. It's 3 PM. 6 hours left in the day."
+    private func hourAnnouncement(at due: Date) -> String? {
+        let cal = Calendar.current
+        var hour = cal.component(.hour, from: due)
+        if !cal.isDate(due, inSameDayAs: lastCheckIn) {
+            // Only the midnight right after the previous check-in's day counts (a day ending at 24).
+            let nextDay = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: lastCheckIn))!
+            guard due == nextDay else { return nil }
+            hour = 24
+        }
+        guard hour != cal.component(.hour, from: lastCheckIn),
+              hour > dayStartHour else { return nil }
+
+        let time = Self.hourFormatter.string(from: due)
+        let left = dayEndHour - hour
+        let rest = left <= 0 ? "That's the end of the day."
+                 : left == 1 ? "1 hour left in the day."
+                 : "\(left) hours left in the day."
+        return "1 hour is up. It's \(time). \(rest)"
+    }
+
+    /// "3 PM"
+    static let hourFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "h a"
+        return f
+    }()
 }
 
 /// Speaks a short phrase or plays an audio clip and reports when it's done,

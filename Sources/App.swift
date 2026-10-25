@@ -31,13 +31,22 @@ struct MenuView: View {
             Text("Activity Logger").font(.headline)
 
             if state.isRunning, let next = state.nextFire {
-                Text("Next check-in at \(next.formatted(date: .omitted, time: .shortened))")
+                let time = next.formatted(date: .omitted, time: .shortened)
+                Text(Calendar.current.isDateInToday(next) ? "Next check-in at \(time)"
+                     : Calendar.current.isDateInTomorrow(next) ? "Next check-in tomorrow at \(time)"
+                     : "Next check-in \(next.formatted(date: .abbreviated, time: .shortened))")
                     .foregroundColor(.secondary)
             } else {
                 Text("Paused").foregroundColor(.secondary)
             }
 
             Stepper("Every \(state.intervalMinutes) min", value: $state.intervalMinutes, in: 1...180)
+            Picker("Day starts", selection: $state.dayStartHour) {
+                ForEach(0..<state.dayEndHour, id: \.self) { Text(Self.hourName($0)).tag($0) }
+            }
+            Picker("Day ends", selection: $state.dayEndHour) {
+                ForEach((state.dayStartHour + 1)...24, id: \.self) { Text(Self.hourName($0)).tag($0) }
+            }
             HStack {
                 Picker("Sound", selection: $state.soundName) {
                     ForEach(AppState.sounds, id: \.self) { Text($0).tag($0) }
@@ -78,7 +87,6 @@ struct MenuView: View {
             }
             Button("Check in now") {
                 WindowManager.shared.showPrompt()
-                state.restartCountdown()
             }
             Button("Show log") { WindowManager.shared.showLog() }
 
@@ -88,5 +96,12 @@ struct MenuView: View {
         }
         .padding(14)
         .frame(width: 270)
+    }
+
+    /// 0 → "12 AM", 15 → "3 PM", 24 → "Midnight"
+    private static func hourName(_ hour: Int) -> String {
+        if hour == 24 { return "Midnight" }
+        let date = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date())!
+        return AppState.hourFormatter.string(from: date)
     }
 }

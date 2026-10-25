@@ -23,6 +23,7 @@ ad-hoc signature, so macOS may ask for these permissions again.
 
 Click the waveform icon in the menu bar to:
 - set the interval (1–180 min, default 10)
+- set when your day starts and ends (default 9 AM–9 PM)
 - pick the chime sound and how many times it plays
 - pause/start the timer, or check in now
 - turn the **commander voice** on or off, test it, or pick your own audio clip for it
@@ -30,14 +31,34 @@ Click the waveform icon in the menu bar to:
 - toggle auto-save (saves once you stop talking for ~3 s) and launch at login
 - open the log window (browse days, copy, show in Finder)
 
-At a check-in you can talk, edit the text, type instead, press **Record** to add more,
-**Save** (⏎), or close the window to dismiss it. The window also shows your last few
-entries from today, and every hour of check-ins is announced aloud.
+At a check-in, press **⏎** to start recording and **⏎** again to save. If the words come
+out wrong, click or type in the text box to fix them: the mic stops and auto-save is off
+for that check-in, so it only saves when you press **⏎** or **Save**. You can also edit
+the text, type instead, press **Record** to add more, or close the window to dismiss it. The window also shows your last few
+entries from today.
+
+### Schedule
+
+Check-ins land on fixed clock slots, counted from midnight, no matter when the app
+started: every 10 min means 10:00, 10:10, 10:20 … (intervals that divide 60, like 10, 15,
+20 or 30, give the cleanest times). They only happen during your day: with 9 AM–9 PM the
+first is at 9:10 and the last at 9:00 PM, and outside those hours the menu shows the next
+one tomorrow. **Check in now** doesn't move the schedule.
+
+At the first check-in of each new hour the app says, for example,
+**"1 hour is up. It's 3 PM. 6 hours left in the day."** (at the last check-in:
+"That's the end of the day."). It's also shown at the top of the check-in window.
+
+If you miss check-ins (say your last update was at 7:00 and you're back at 8:56), the
+9:00 check-in says **"2 hours since your last update. It's 9 AM. 15 hours left in the
+day."**, asks what you did since 7:00 AM, and logs your answer as `07:00–09:00`. After
+that it goes back to every 10 minutes. An unanswered window is replaced by the next
+check-in rather than left open.
 
 ### Commander voice
 
-At each timer check-in the app shouts **"Soldier! Update!"** instead of the chime, then
-listens. If you don't start talking within 2 seconds it shouts again (up to 5 times), and
+At each timer check-in the app says the hour announcement (if one is due), then shouts
+**"Soldier! Update!"** instead of the chime, then listens. If you don't start talking within 2 seconds it shouts again (up to 5 times), and
 after you save it says **"Focus, soldier!"**. By default it uses the deepest built-in macOS voice (Ralph), pitched down and sped up. For a more
 convincing drill sergeant, click **Use my own clip…** and choose an audio file (mp3, m4a,
 wav, aiff); it is copied to `~/Library/Application Support/ActivityLogger/`.

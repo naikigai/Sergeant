@@ -7,6 +7,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     private var promptWindow: NSWindow?
     private var recorder: SpeechRecorder?
     private var logWindow: NSWindow?
+    /// Handles ⏎ in the check-in window (record, then save).
+    private var keyMonitor: Any?
 
     // MARK: Check-in prompt
 
@@ -17,20 +19,31 @@ final class WindowManager: NSObject, NSWindowDelegate {
     /// the chime and repeats it if you don't start talking within 2 s; after you save it
     /// says "Focus, soldier!". `announcement` (e.g. "1 hour is up") is spoken once and
     /// shown in the window. The app and the mic take turns, so the mic never hears the app.
-    func showPrompt(announcement: String? = nil, commander: Bool = false) {
+    /// With `replacingIdle`, an earlier check-in nobody has answered is replaced by this one.
+    func showPrompt(announcement: String? = nil, commander: Bool = false, replacingIdle: Bool = false) {
         if let w = promptWindow { // previous check-in still open
-            NSApp.activate(ignoringOtherApps: true)
-            w.makeKeyAndOrderFront(nil)
-            return
+            let idle = recorder.map {
+                !$0.isListening && $0.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            } ?? true
+            if replacingIdle && idle {
+                closePrompt()
+            } else {
+                NSApp.activate(ignoringOtherApps: true)
+                w.makeKeyAndOrderFront(nil)
+                return
+            }
         }
 
         let rec = SpeechRecorder()
         let promptTime = Date()
+        // After missed check-ins, this update covers everything since the last one.
+        let since = AppState.shared.missedSince(promptTime)
 
         let save: (String) -> Void = { [weak self, weak rec] text in
             guard let rec, !rec.saved else { return }
             rec.stop()
-            LogStore.shared.add(text, at: promptTime)
+            LogStore.shared.add(text, at: promptTime, since: since)
+            AppState.shared.lastUpdateAt = promptTime
             rec.saved = true
             if commander {
                 Announcer.shared.stop() // cut off a shout still in progress
@@ -42,7 +55,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
         }
 
         rec.onFinishedSpeaking = { [weak rec] in
-            guard AppState.shared.autoSave, let rec,
+            guard AppState.shared.autoSave, let rec, !rec.editedByUser,
                   !rec.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             save(rec.transcript)
         }
@@ -50,6 +63,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
         let view = PromptView(
             recorder: rec,
             minutes: AppState.shared.intervalMinutes,
+            since: since,
             recent: LogStore.shared.recentEntries(5),
             announcement: announcement,
             onSave: save
@@ -78,10 +92,48 @@ final class WindowManager: NSObject, NSWindowDelegate {
         let isActive = { [weak self] in
             weakRec != nil && self?.recorder === weakRec && weakRec?.saved == false
         }
-        let startListening = { if isActive() { weakRec?.start() } }
-        let announce = {
-            guard let announcement, isActive() else { return startListening() }
-            Announcer.shared.say(announcement, then: startListening)
+        let startListening = { if isActive(), weakRec?.editedByUser == false { weakRec?.start() } }
+        /// Speaks the announcement (if any), then runs `next`.
+        let announce = { (next: @escaping () -> Void) in
+            guard let announcement, isActive() else { return next() }
+            Announcer.shared.say(announcement) { if isActive() { next() } }
+        }
+
+        /// You clicked or typed in the text box: stop the mic (so it doesn't overwrite your
+        /// edits) and any shouting, and from now on save only with ⏎ or Save.
+        let userEdits = {
+            guard let rec = weakRec, isActive(), !rec.editedByUser else { return }
+            rec.editedByUser = true
+            Announcer.shared.stop()
+            rec.onNoSpeech = nil
+            rec.stop()
+        }
+
+        // ⏎ when not recording: start recording now (cutting off any shout or repeat).
+        // ⏎ while recording or with text: save. Empty and recording: keep listening.
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { [weak w] event in
+            guard let w, event.window === w, let rec = weakRec, isActive() else { return event }
+
+            if event.type == .leftMouseDown {
+                if Self.isTextBox(w.contentView?.hitTest(event.locationInWindow)) { userEdits() }
+                return event
+            }
+
+            let isReturn = event.keyCode == 36 || event.keyCode == 76 // Return, keypad Enter
+            let modifiers = event.modifierFlags.intersection([.shift, .option, .command, .control])
+            guard isReturn, modifiers.isEmpty else {
+                if w.firstResponder is NSTextView { userEdits() } // any key, incl. ⌘V and Shift-⏎
+                return event
+            }
+            if !rec.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                save(rec.transcript)
+            } else if !rec.isListening {
+                Announcer.shared.stop()
+                rec.onNoSpeech = nil
+                rec.noSpeechTimeout = 30
+                rec.start()
+            }
+            return nil
         }
 
         let begin: () -> Void
@@ -90,7 +142,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
             func shout() {
                 guard isActive() else { return }
                 shouts += 1
-                Commander.shared.shout(then: shouts == 1 ? announce : startListening)
+                Commander.shared.shout(then: startListening)
             }
             rec.noSpeechTimeout = 2
             rec.onNoSpeech = {
@@ -107,12 +159,12 @@ final class WindowManager: NSObject, NSWindowDelegate {
                 }
                 return true
             }
-            begin = shout
+            begin = { announce(shout) } // "1 hour is up", then "Soldier! Update!"
         } else {
             begin = {
                 guard isActive() else { return }
                 let chimeLength = Chime.play(AppState.shared.soundName, repeats: AppState.shared.soundRepeats)
-                DispatchQueue.main.asyncAfter(deadline: .now() + chimeLength + 0.3, execute: announce)
+                DispatchQueue.main.asyncAfter(deadline: .now() + chimeLength + 0.3) { announce(startListening) }
             }
         }
 
@@ -122,6 +174,16 @@ final class WindowManager: NSObject, NSWindowDelegate {
         } else {
             begin()
         }
+    }
+
+    /// Whether a click landed in the check-in's text box (the NSTextView behind TextEditor).
+    private static func isTextBox(_ view: NSView?) -> Bool {
+        var v = view
+        while let current = v {
+            if current is NSTextView || (current as? NSScrollView)?.documentView is NSTextView { return true }
+            v = current.superview
+        }
+        return false
     }
 
     private func closePrompt() {
@@ -141,6 +203,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     /// Stops the mic. If the check-in wasn't saved, also stops any pending shout and resumes
     /// paused media; after a save, `save` does that once "Focus, soldier!" has finished.
     private func endPrompt() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
         if recorder?.saved == false {
             Announcer.shared.stop()
             MediaPauser.shared.resumeIfPaused()
@@ -175,6 +239,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
 struct PromptView: View {
     @ObservedObject var recorder: SpeechRecorder
     let minutes: Int
+    let since: Date?
     let recent: [LogEntry]
     let announcement: String?
     let onSave: (String) -> Void
@@ -203,7 +268,8 @@ struct PromptView: View {
                             Text(entry.time)
                                 .monospacedDigit()
                                 .foregroundColor(.secondary)
-                                .frame(width: 40, alignment: .leading)
+                                .frame(minWidth: 40, alignment: .leading)
+                                .fixedSize()
                             Text(entry.text)
                                 .lineLimit(3)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -216,7 +282,8 @@ struct PromptView: View {
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.1)))
             }
 
-            Text("What did you do in the last \(minutes) min?")
+            Text(since.map { "What did you do since \($0.formatted(date: .omitted, time: .shortened))?" }
+                 ?? "What did you do in the last \(minutes) min?")
                 .font(.title2.bold())
 
             HStack(spacing: 6) {
@@ -225,10 +292,10 @@ struct PromptView: View {
                     Text("Saved")
                 } else if recorder.isListening {
                     Image(systemName: "mic.fill").foregroundColor(.red)
-                    Text("Listening… pause for a few seconds when you're done")
+                    Text(isEmpty ? "Listening… speak now" : "Listening… press ⏎ to save")
                 } else {
                     Image(systemName: "mic.slash").foregroundColor(.secondary)
-                    Text("Not listening")
+                    Text(isEmpty ? "Press ⏎ to record" : "Press ⏎ to save")
                 }
             }
             .font(.callout)
@@ -290,7 +357,8 @@ struct LogView: View {
                         Text(entry.time)
                             .monospacedDigit()
                             .foregroundColor(.secondary)
-                            .frame(width: 44, alignment: .leading)
+                            .frame(minWidth: 44, alignment: .leading)
+                            .fixedSize()
                         Text(entry.text)
                             .textSelection(.enabled)
                     }

@@ -8,6 +8,9 @@ final class SpeechRecorder: ObservableObject {
     @Published private(set) var isListening = false
     @Published var message: String?
     @Published var saved = false
+    /// Set once the user clicks or types in the text box: from then on nothing records or
+    /// saves by itself (no auto-save, no auto-start); only ⏎, Save or Record do.
+    @Published var editedByUser = false
 
     /// Called when the user has spoken and then gone quiet.
     var onFinishedSpeaking: (() -> Void)?

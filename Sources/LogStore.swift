@@ -7,7 +7,8 @@ struct LogEntry: Identifiable {
 }
 
 /// Stores one plain-text file per day in ~/Documents/ActivityLog/YYYY-MM-DD.txt,
-/// each line formatted as "HH:mm<TAB>what I did".
+/// each line formatted as "HH:mm<TAB>what I did", or "HH:mm–HH:mm<TAB>…" for an update
+/// that covers missed check-ins.
 final class LogStore: ObservableObject {
     static let shared = LogStore()
 
@@ -40,13 +41,14 @@ final class LogStore: ObservableObject {
         folder.appendingPathComponent(Self.dayFormat.string(from: date) + ".txt")
     }
 
-    func add(_ text: String, at date: Date = Date()) {
+    func add(_ text: String, at date: Date = Date(), since: Date? = nil) {
         let clean = text
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
 
-        let line = "\(Self.timeFormat.string(from: date))\t\(clean)\n"
+        let time = [since, date].compactMap { $0 }.map(Self.timeFormat.string).joined(separator: "–")
+        let line = "\(time)\t\(clean)\n"
         let url = fileURL(for: date)
         if let handle = try? FileHandle(forWritingTo: url) {
             handle.seekToEndOfFile()
