@@ -1,4 +1,4 @@
-# Activity Logger
+# Sergeant
 
 A tiny macOS menu-bar app. Every N minutes it chimes, asks "What did you do?",
 listens through the mic, transcribes your answer on-device and appends it to a daily log.
@@ -12,8 +12,8 @@ listens through the mic, transcribes your answer on-device and appends it to a d
 
 ```bash
 ./build.sh
-cp -R build/ActivityLogger.app /Applications/
-open /Applications/ActivityLogger.app
+cp -R build/Sergeant.app /Applications/
+open /Applications/Sergeant.app
 ```
 
 Allow **Microphone** and **Speech Recognition** when prompted. Rebuilding changes the

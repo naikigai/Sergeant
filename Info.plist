@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>ActivityLogger</string>
+    <string>Sergeant</string>
     <key>CFBundleDisplayName</key>
-    <string>Activity Logger</string>
+    <string>Sergeant</string>
     <key>CFBundleIdentifier</key>
-    <string>com.abhi.ActivityLogger</string>
+    <string>com.abhi.Sergeant</string>
     <key>CFBundleExecutable</key>
-    <string>ActivityLogger</string>
+    <string>Sergeant</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -21,8 +21,8 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Activity Logger listens for a short moment at each check-in so you can say what you worked on.</string>
+    <string>Sergeant listens for a short moment at each check-in so you can say what you worked on.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Activity Logger converts what you say at each check-in into text for your log.</string>
+    <string>Sergeant converts what you say at each check-in into text for your log.</string>
 </dict>
 </plist>

@@ -81,6 +81,7 @@ final class AppState: ObservableObject {
     private var lastCheckIn = Date()
 
     private init() {
+        Self.migrateSettings(into: defaults)
         let saved = defaults.integer(forKey: "intervalMinutes")
         intervalMinutes = saved > 0 ? saved : 10
         autoSave = defaults.object(forKey: "autoSave") as? Bool ?? true
@@ -102,6 +103,21 @@ final class AppState: ObservableObject {
             self.lastCheckIn = Date()
             self.schedule()
         }
+    }
+
+    /// The app used to be called Activity Logger (bundle ID com.abhi.ActivityLogger);
+    /// copy its settings over once so the rename doesn't reset them.
+    private static func migrateSettings(into defaults: UserDefaults) {
+        guard !defaults.bool(forKey: "migratedFromActivityLogger"),
+              let old = UserDefaults(suiteName: "com.abhi.ActivityLogger") else { return }
+        for key in ["intervalMinutes", "soundName", "soundRepeats", "autoSave", "pauseMedia",
+                    "commanderVoice", "dayStartHour", "dayEndHour", "running", "lastUpdateAt",
+                    "NSWindow Frame ActivityLogWindow"] {
+            if defaults.object(forKey: key) == nil, let value = old.object(forKey: key) {
+                defaults.set(value, forKey: key)
+            }
+        }
+        defaults.set(true, forKey: "migratedFromActivityLogger")
     }
 
     func startIfNeeded() {

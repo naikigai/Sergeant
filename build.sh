@@ -1,9 +1,9 @@
 #!/bin/bash
-# Builds build/ActivityLogger.app using the Xcode Command Line Tools (no Xcode needed).
+# Builds build/Sergeant.app using the Xcode Command Line Tools (no Xcode needed).
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP="build/ActivityLogger.app"
+APP="build/Sergeant.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 
@@ -26,10 +26,10 @@ swiftc -O -parse-as-library -swift-version 5 \
     -target arm64-apple-macos13.0 \
     "${EXTRA_FLAGS[@]}" \
     Sources/*.swift \
-    -o "$APP/Contents/MacOS/ActivityLogger"
+    -o "$APP/Contents/MacOS/Sergeant"
 
 cp Info.plist "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
 
 echo "Built $APP"
-echo "Install:  cp -R $APP /Applications/ && open /Applications/ActivityLogger.app"
+echo "Install:  cp -R $APP /Applications/ && open /Applications/Sergeant.app"

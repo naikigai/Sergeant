@@ -6,6 +6,13 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed to Sergeant** (was Activity Logger): the app, its menu, `Sergeant.app` and
+  the bundle ID `com.abhi.Sergeant`. Your settings are carried over on first launch;
+  logs stay in `~/Documents/ActivityLog/`. macOS will ask for Microphone and Speech
+  Recognition permission again.
+
 ### Added
 
 - **Catch-up updates**: if you miss check-ins (away from the Mac), the next one says how
@@ -90,6 +97,6 @@ First public release.
 
 - The Skip button on the check-in window. Close the window to dismiss a check-in.
 
-[Unreleased]: https://github.com/naikigai/ActivityLogger/compare/v1.1.0...HEAD
-[1.1.0]: https://github.com/naikigai/ActivityLogger/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/naikigai/ActivityLogger/releases/tag/v1.0.0
+[Unreleased]: https://github.com/naikigai/Sergeant/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/naikigai/Sergeant/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/naikigai/Sergeant/releases/tag/v1.0.0

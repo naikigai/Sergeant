@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ActivityLoggerApp: App {
+struct SergeantApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @ObservedObject private var state = AppState.shared
 
@@ -28,7 +28,7 @@ struct MenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Activity Logger").font(.headline)
+            Text("Sergeant").font(.headline)
 
             if state.isRunning, let next = state.nextFire {
                 let time = next.formatted(date: .omitted, time: .shortened)
