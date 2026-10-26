@@ -15,6 +15,14 @@ project uses [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Check-in on wake**: if the Mac slept through a check-in, you're asked as soon as it
+  wakes, not at the next slot. The voice says "You haven't given an update since 10:50 AM.
+  That's 16 minutes. Tell me everything you did since then.", and your answer is logged
+  for the whole span (`10:50–11:06`). This only happens during your workday.
+- **Away detection**: if a check-in gets no response for a minute (no speech, typing or
+  ⏎), you're taken to be away from the screen. The check-in closes, any video stays
+  paused, and the next one calls you out: "You were away from your screen at the 11:00 AM
+  check-in. 20 minutes since your last update." Your answer covers the whole gap.
 - **Catch-up updates**: if you miss check-ins (away from the Mac), the next one says how
   long it's been, e.g. "2 hours since your last update.", asks "What did you do since
   7:00 AM?", and logs your answer for the whole span (`07:00–09:00`). An unanswered

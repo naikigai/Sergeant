@@ -51,6 +51,11 @@ final class MediaPauser {
         }
     }
 
+    /// Leaves whatever we paused paused, e.g. when you've walked away.
+    func forgetPause() {
+        pausedByUs = false
+    }
+
     /// Resumes playback if we paused it. Safe to call more than once.
     func resumeIfPaused() {
         guard pausedByUs else { return }

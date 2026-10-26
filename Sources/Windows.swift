@@ -9,6 +9,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     private var logWindow: NSWindow?
     /// Handles ⏎ in the check-in window (record, then save).
     private var keyMonitor: Any?
+    /// Closes a check-in nobody responded to (see `awayAfter`).
+    private var awayTimer: Timer?
 
     // MARK: Check-in prompt
 
@@ -20,7 +22,12 @@ final class WindowManager: NSObject, NSWindowDelegate {
     /// says "Focus, soldier!". `announcement` (e.g. "1 hour is up") is spoken once and
     /// shown in the window. The app and the mic take turns, so the mic never hears the app.
     /// With `replacingIdle`, an earlier check-in nobody has answered is replaced by this one.
-    func showPrompt(announcement: String? = nil, commander: Bool = false, replacingIdle: Bool = false) {
+    /// `since` makes the update cover the time from then (used after waking); by default
+    /// that's only done when check-ins were missed. With `awayAfter`, a check-in that gets no
+    /// response at all (no speech, typing or ⏎) in that time is closed and you're marked away,
+    /// so the next check-in reprimands you.
+    func showPrompt(announcement: String? = nil, commander: Bool = false, replacingIdle: Bool = false,
+                    since sinceOverride: Date? = nil, awayAfter: TimeInterval? = nil) {
         if let w = promptWindow { // previous check-in still open
             let idle = recorder.map {
                 !$0.isListening && $0.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -37,13 +44,14 @@ final class WindowManager: NSObject, NSWindowDelegate {
         let rec = SpeechRecorder()
         let promptTime = Date()
         // After missed check-ins, this update covers everything since the last one.
-        let since = AppState.shared.missedSince(promptTime)
+        let since = sinceOverride ?? AppState.shared.missedSince(promptTime)
 
         let save: (String) -> Void = { [weak self, weak rec] text in
             guard let rec, !rec.saved else { return }
             rec.stop()
             LogStore.shared.add(text, at: promptTime, since: since)
             AppState.shared.lastUpdateAt = promptTime
+            AppState.shared.awayAt = nil
             rec.saved = true
             if commander {
                 Announcer.shared.stop() // cut off a shout still in progress
@@ -101,7 +109,11 @@ final class WindowManager: NSObject, NSWindowDelegate {
 
         /// You clicked or typed in the text box: stop the mic (so it doesn't overwrite your
         /// edits) and any shouting, and from now on save only with ⏎ or Save.
+        /// Set by anything that shows you're at the screen: ⏎, a click or a key in the text box.
+        var responded = false
+
         let userEdits = {
+            responded = true
             guard let rec = weakRec, isActive(), !rec.editedByUser else { return }
             rec.editedByUser = true
             Announcer.shared.stop()
@@ -125,6 +137,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
                 if w.firstResponder is NSTextView { userEdits() } // any key, incl. ⌘V and Shift-⏎
                 return event
             }
+            responded = true
             if !rec.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 save(rec.transcript)
             } else if !rec.isListening {
@@ -134,6 +147,18 @@ final class WindowManager: NSObject, NSWindowDelegate {
                 rec.start()
             }
             return nil
+        }
+
+        if let awayAfter {
+            awayTimer = Timer.scheduledTimer(withTimeInterval: awayAfter, repeats: false) { [weak self] _ in
+                guard let self, isActive(), let rec = weakRec, !responded, !rec.editedByUser,
+                      rec.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                // You're away: stop shouting and listening, leave any video paused (you're not
+                // watching it), and let the next check-in call you out.
+                AppState.shared.awayAt = promptTime
+                MediaPauser.shared.forgetPause()
+                self.closePrompt()
+            }
         }
 
         let begin: () -> Void
@@ -205,6 +230,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     private func endPrompt() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        awayTimer?.invalidate()
+        awayTimer = nil
         if recorder?.saved == false {
             Announcer.shared.stop()
             MediaPauser.shared.resumeIfPaused()

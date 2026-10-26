@@ -76,6 +76,13 @@ final class AppState: ObservableObject {
         set { defaults.set(newValue, forKey: "lastUpdateAt") }
     }
 
+    /// When a check-in went unanswered because you were away (no response within
+    /// `awayTimeout`); the next check-in reprimands you for it. Cleared when you save.
+    var awayAt: Date?
+
+    /// How long a check-in waits for any response before deciding you're away.
+    static let awayTimeout: TimeInterval = 60
+
     /// When the previous check-in was due (or when the timer started); used to tell
     /// when a new clock hour has begun.
     private var lastCheckIn = Date()
@@ -94,14 +101,14 @@ final class AppState: ObservableObject {
         dayEndHour = defaults.object(forKey: "dayEndHour") as? Int ?? 21
         launchAtLogin = SMAppService.mainApp.status == .enabled
 
-        // After sleep, pick the next upcoming slot, and count the hour from the wake
-        // so the first check-in after waking doesn't say "1 hour is up".
+        // After sleep, check in right away if a slot was slept through; otherwise pick the
+        // next upcoming slot. Count the hour from the wake so the first check-in after
+        // waking doesn't say "1 hour is up".
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             guard let self, self.isRunning else { return }
-            self.lastCheckIn = Date()
-            self.schedule()
+            self.catchUpOrSchedule()
         }
     }
 
@@ -147,20 +154,48 @@ final class AppState: ObservableObject {
         let t = Timer(fire: due, interval: 0, repeats: false) { [weak self] _ in
             guard let self else { return }
             // A slot that came due while the Mac slept fires on wake, sometimes before the
-            // wake notification arrives; skip it rather than asking at an odd time.
-            guard Date().timeIntervalSince(due) < 60 else {
-                self.lastCheckIn = Date()
-                return self.schedule()
-            }
+            // wake notification arrives; check in now about the whole gap instead.
+            guard Date().timeIntervalSince(due) < 60 else { return self.catchUpOrSchedule() }
             let announcement = self.announcement(at: due)
             self.lastCheckIn = due
             self.schedule()
             WindowManager.shared.showPrompt(announcement: announcement, commander: self.commanderVoice,
-                                            replacingIdle: true)
+                                            replacingIdle: true, awayAfter: Self.awayTimeout)
         }
         t.tolerance = 1
         RunLoop.main.add(t, forMode: .common)
         timer = t
+    }
+
+    /// On wake: if the pending slot came due while the Mac slept, check in immediately and
+    /// say how long it's been since the last update; then schedule the next slot. Runs from
+    /// both the wake notification and the stale timer, whichever comes first; the first one
+    /// moves `nextFire` ahead, so the other does nothing extra.
+    private func catchUpOrSchedule() {
+        let now = Date()
+        let missed = nextFire.map { $0 <= now } ?? false
+        lastCheckIn = now
+        schedule()
+        guard missed, isInWorkday(now) else { return }
+
+        let last = lastUpdateAt.flatMap { Calendar.current.isDate($0, inSameDayAs: now) ? $0 : nil }
+        var announcement = awayNote(at: now).map { $0 + " " } ?? ""
+        if let last {
+            let time = last.formatted(date: .omitted, time: .shortened)
+            announcement += "You haven't given an update since \(time). That's \(Self.duration(now.timeIntervalSince(last))). "
+                          + "Tell me everything you did since then."
+        } else {
+            announcement += "You haven't given an update yet today. Tell me everything you've done so far."
+        }
+        WindowManager.shared.showPrompt(announcement: announcement, commander: commanderVoice,
+                                        replacingIdle: true, since: last, awayAfter: Self.awayTimeout)
+    }
+
+    private func isInWorkday(_ date: Date) -> Bool {
+        let cal = Calendar.current
+        let day = cal.startOfDay(for: date)
+        return date > cal.date(byAdding: .hour, value: dayStartHour, to: day)!
+            && date <= cal.date(byAdding: .hour, value: dayEndHour, to: day)!
     }
 
     /// The first clock slot after `date` inside the workday. Slots are multiples of the
@@ -200,11 +235,23 @@ final class AppState: ObservableObject {
     /// What's said at a timer check-in, e.g. "2 hours since your last update.
     /// It's 9 AM. 15 hours left in the day." or just the hourly part, or nil.
     private func announcement(at due: Date) -> String? {
+        let parts = [awayNote(at: due), gapAnnouncement(at: due)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    private func gapAnnouncement(at due: Date) -> String? {
         let hourly = hourAnnouncement(at: due)
         guard let since = missedSince(due) else { return hourly }
         let gap = "\(Self.duration(due.timeIntervalSince(since))) since your last update."
         guard let hourly else { return gap }
         return gap + " " + hourly.replacingOccurrences(of: "1 hour is up. ", with: "")
+    }
+
+    /// "You were away from your screen at the 11:00 AM check-in." when the last
+    /// check-in today went unanswered.
+    private func awayNote(at date: Date) -> String? {
+        guard let awayAt, Calendar.current.isDate(awayAt, inSameDayAs: date) else { return nil }
+        return "You were away from your screen at the \(awayAt.formatted(date: .omitted, time: .shortened)) check-in."
     }
 
     /// "40 minutes", "1 hour", "2 hours and 10 minutes"
